@@ -188,13 +188,22 @@ class CamoufoxBrowser:
     def get_tab(self, tab_id: str) -> Tab | None:
         return self._tabs.get(tab_id)
 
-    def close_tab(self, tab_id: str) -> None:
+    async def close_tab_async(self, tab_id: str) -> None:
         tab = self._tabs.pop(tab_id, None)
         if tab:
-            asyncio.run(tab.close())
+            await tab.close()
+
+    def close_tab(self, tab_id: str) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self.close_tab_async(tab_id))
+        except RuntimeError:
+            asyncio.run(self.close_tab_async(tab_id))
 
     async def aclose(self) -> None:
         """Close browser and all tabs (async)"""
+        if self._browser is None and not self._tabs:
+            return
         for tab in list(self._tabs.values()):
             try:
                 await tab.close()
@@ -202,19 +211,24 @@ class CamoufoxBrowser:
                 pass
         self._tabs.clear()
         if self._browser:
-            await self._browser.close()
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
             self._browser = None
         if self._playwright:
-            await self._playwright.__aexit__(None, None, None)
+            try:
+                await self._playwright.__aexit__(None, None, None)
+            except Exception:
+                pass
             self._playwright = None
 
     def close(self) -> None:
         """Close browser and all tabs (sync wrapper)"""
         try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self.aclose())
-        except RuntimeError:
             asyncio.run(self.aclose())
+        except RuntimeError:
+            pass
 
     @property
     def is_running(self) -> bool:
