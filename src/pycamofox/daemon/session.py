@@ -21,61 +21,93 @@ class Session:
         """Dispatch command to Tab within lock"""
         async with self.lock:
             self.last_active = datetime.now(timezone.utc).isoformat()
-            result = self._dispatch(command, **kwargs)
-            self._save_state()
+            result = await self._dispatch(command, **kwargs)
+            await self._save_state_async()
             return result
 
-    def _dispatch(self, command: str, **kwargs) -> dict[str, Any]:
-        dispatch = {
-            "navigate": lambda: self.tab.goto(kwargs.get("url", "")),
-            "click": lambda: self.tab.click(kwargs.get("selector", "")),
-            "type": lambda: self.tab.type(kwargs.get("selector", ""), kwargs.get("text", "")),
-            "fill": lambda: self.tab.fill(kwargs.get("selector", ""), kwargs.get("text", "")),
-            "screenshot": lambda: {"data": self.tab.screenshot().hex()},
-            "get_text": lambda: {"text": self.tab.inner_text(kwargs.get("selector", "body"))},
-            "get_html": lambda: {"html": self.tab.content()},
-            "eval": lambda: {"result": self.tab.eval(kwargs.get("expression", "null"))},
-            "scroll": lambda: self.tab.scroll(kwargs.get("direction", "down"), kwargs.get("amount", 1)),
-            "wait_network_idle": lambda: self.tab.wait_network_idle(kwargs.get("timeout", 10000)),
-            "get_url": lambda: {"url": self.tab.url},
-            "get_title": lambda: {"title": self.tab.title},
-            "cookies": lambda: {"cookies": self.tab.cookies()},
-            "set_cookies": lambda: (self.tab.set_cookies(kwargs.get("cookies", [])), {"status": "ok"})[1],
-            "get_scroll": lambda: dict(zip(["x", "y"], self.tab.get_scroll_position())),
-        }
-        handler = dispatch.get(command)
-        if handler is None:
+    async def _dispatch(self, command: str, **kwargs) -> dict[str, Any]:
+        if command == "navigate":
+            return await self.tab.goto(kwargs.get("url", ""))
+        elif command == "click":
+            return await self.tab.click(kwargs.get("selector", ""))
+        elif command == "type":
+            return await self.tab.type(kwargs.get("selector", ""), kwargs.get("text", ""))
+        elif command == "fill":
+            return await self.tab.fill(kwargs.get("selector", ""), kwargs.get("text", ""))
+        elif command == "screenshot":
+            return {"data": (await self.tab.screenshot()).hex()}
+        elif command == "get_text":
+            return {"text": await self.tab.inner_text(kwargs.get("selector", "body"))}
+        elif command == "get_html":
+            return {"html": await self.tab.content()}
+        elif command == "eval":
+            return {"result": await self.tab.eval(kwargs.get("expression", "null"))}
+        elif command == "scroll":
+            return await self.tab.scroll(kwargs.get("direction", "down"), kwargs.get("amount", 1))
+        elif command == "wait_network_idle":
+            return await self.tab.wait_network_idle(kwargs.get("timeout", 10000))
+        elif command == "get_url":
+            return {"url": self.tab.url}
+        elif command == "get_title":
+            return {"title": self.tab.title}
+        elif command == "cookies":
+            return {"cookies": self.tab.cookies()}
+        elif command == "set_cookies":
+            await self.tab.set_cookies(kwargs.get("cookies", []))
+            return {"status": "ok"}
+        elif command == "get_scroll":
+            return dict(zip(["x", "y"], await self.tab.get_scroll_position()))
+        else:
             raise ValueError(f"Unknown command: {command}")
-        return handler()
 
-    def _save_state(self) -> None:
-        """Save current state to disk"""
-        scroll = self.tab.get_scroll_position()
+    async def _save_state_async(self) -> None:
+        """Save current state to disk (async)"""
+        scroll = await self.tab.get_scroll_position()
         state = SessionState(
             session_id=self.id,
             url=self.tab.url,
             title=self.tab.title,
             cookies=self.tab.cookies(),
-            local_storage=self.tab.get_local_storage(),
+            local_storage=await self.tab.get_local_storage(),
             scroll_position=scroll,
             created_at=self.created_at,
             last_active=self.last_active,
         )
         self.state_store.save(state)
 
-    def get_state(self) -> SessionState:
-        """Get current state without persisting"""
-        scroll = self.tab.get_scroll_position()
+    def _save_state(self) -> None:
+        """Save current state to disk (sync wrapper)"""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._save_state_async())
+        except RuntimeError:
+            asyncio.run(self._save_state_async())
+
+    async def get_state_async(self) -> SessionState:
+        """Get current state without persisting (async)"""
+        scroll = await self.tab.get_scroll_position()
         return SessionState(
             session_id=self.id,
             url=self.tab.url,
             title=self.tab.title,
             cookies=self.tab.cookies(),
-            local_storage=self.tab.get_local_storage(),
+            local_storage=await self.tab.get_local_storage(),
             scroll_position=scroll,
             created_at=self.created_at,
             last_active=self.last_active,
         )
+
+    def get_state(self) -> SessionState:
+        """Get current state without persisting (sync wrapper)"""
+        try:
+            loop = asyncio.get_running_loop()
+            # Can't easily await in sync method, create a coroutine and run it
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.get_state_async())
+                return future.result()
+        except RuntimeError:
+            return asyncio.run(self.get_state_async())
 
 
 class SessionManager:
@@ -100,12 +132,12 @@ class SessionManager:
         existing_state = self._state_store.load(sid)
         if existing_state:
             if existing_state.cookies:
-                tab.set_cookies(existing_state.cookies)
+                asyncio.run(tab.set_cookies(existing_state.cookies))
             if existing_state.local_storage:
-                tab.set_local_storage(existing_state.local_storage)
+                asyncio.run(tab.set_local_storage(existing_state.local_storage))
             if existing_state.url:
                 try:
-                    tab.goto(existing_state.url)
+                    asyncio.run(tab.goto(existing_state.url))
                 except Exception:
                     pass
 
@@ -136,6 +168,14 @@ class SessionManager:
 
         self._locks.pop(session_id, None)
         session._save_state()
-        session.tab.close()
+
+        # Close tab - handle both sync and async contexts
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context, schedule the close
+            loop.create_task(session.tab.close())
+        except RuntimeError:
+            # No running loop, safe to use asyncio.run
+            asyncio.run(session.tab.close())
 
         return {"status": "closed", "session_id": session_id}
