@@ -77,3 +77,44 @@
 ## 许可证
 
 MIT
+
+## Quick Start
+
+### Start Daemon
+
+```bash
+python -m pycamofox daemon --port 9377 --headless
+```
+
+### Using the REST API
+
+```bash
+# Create session
+curl -X POST http://127.0.0.1:9377/sessions
+
+# Execute command
+curl -X POST http://127.0.0.1:9377/sessions/{id}/execute \
+  -H "Content-Type: application/json" \
+  -d '{"command": "navigate", "args": {"url": "https://github.com"}}'
+
+# Close session
+curl -X DELETE http://127.0.0.1:9377/sessions/{id}
+```
+
+### Python Client
+
+```python
+from pycamofox import CamoufoxBrowser, SessionManager
+
+browser = CamoufoxBrowser(headless=True)
+browser.launch()
+
+manager = SessionManager(browser=browser)
+session = manager.create_session()
+
+import asyncio
+result = asyncio.run(manager.execute(session.id, "navigate", url="https://github.com"))
+print(result)
+
+browser.close()
+```
