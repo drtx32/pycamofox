@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from pycamofox.daemon.browser import CamoufoxBrowser, Tab
 
@@ -59,44 +60,36 @@ def test_browser_close_tab():
 
     browser = CamoufoxBrowser(headless=True)
     browser._browser = MagicMock()
+    browser._loop = MagicMock()
     browser._tabs = {"tab-1": tab}
 
-    # Need to run the sync wrapper for async close
+    # Mock _run_async to run the coroutine synchronously
+    def fake_run_async(coro):
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+    browser._run_async = fake_run_async
+
     browser.close_tab("tab-1")
 
-    # Verify close was called (via asyncio.run)
+    # Verify close was called
     mock_page.close.assert_called_once()
     assert "tab-1" not in browser._tabs
 
-@pytest.mark.asyncio
-async def test_browser_launch_async():
-    """Test that launch_async properly launches browser"""
+
+def test_browser_init():
+    """Test that browser initializes with correct defaults"""
     browser = CamoufoxBrowser(headless=True)
+    assert browser.headless is True
+    assert browser._browser is None
+    assert browser._tabs == {}
+    assert browser._tab_counter == 0
+    assert browser.is_running is False
 
-    # Mock the async_playwright and Camoufox
-    mock_playwright = AsyncMock()
-    mock_playwright.start = AsyncMock(return_value=mock_playwright)
-    mock_playwright.__aenter__ = AsyncMock(return_value=mock_playwright)
-    mock_playwright.__aexit__ = AsyncMock(return_value=None)
 
-    mock_browser = AsyncMock()
-    mock_page = MagicMock()
-    mock_page.url = "about:blank"
-    mock_page.title = ""
-    mock_browser.new_page = AsyncMock(return_value=mock_page)
-    mock_browser.close = AsyncMock()
-
-    mock_camoufox = AsyncMock()
-    mock_camoufox.__aenter__ = AsyncMock(return_value=mock_browser)
-    mock_camoufox.__aexit__ = AsyncMock(return_value=None)
-
-    with patch("camoufox.async_api.AsyncCamoufox", return_value=mock_camoufox):
-        with patch("playwright.async_api.async_playwright", return_value=mock_playwright):
-            result = await browser.launch_async()
-
-    assert result["status"] == "launched"
-    assert "tab_id" in result
-    assert browser.is_running is True
-
-    # Cleanup
-    await browser.aclose()
+def test_get_tab_returns_none_when_empty():
+    """Test that get_tab returns None for nonexistent tab"""
+    browser = CamoufoxBrowser(headless=True)
+    assert browser.get_tab("nonexistent") is None

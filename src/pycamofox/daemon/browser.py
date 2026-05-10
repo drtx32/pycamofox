@@ -1,11 +1,12 @@
 from __future__ import annotations
 import asyncio
-import uuid
+import threading
 from datetime import datetime, timezone
 from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
+
 
 class Tab:
     """Wrapper around a Playwright Async Page with an ID"""
@@ -45,7 +46,7 @@ class Tab:
         return await self._page.inner_text(selector)
 
     async def content(self) -> str:
-        return await self._page.content()
+        return self._page.content()
 
     async def eval(self, expression: str) -> Any:
         return await self._page.eval_on_selector("body", expression)
@@ -67,9 +68,8 @@ class Tab:
         except Exception as e:
             return {"status": "timeout", "error": str(e)}
 
-    def cookies(self) -> list[dict[str, Any]]:
-        # sync — no await needed for context.cookies()
-        return self._page.context.cookies()
+    async def cookies(self) -> list[dict[str, Any]]:
+        return await self._page.context.cookies()
 
     async def set_cookies(self, cookies: list[dict[str, Any]]) -> None:
         await self._page.context.set_cookies(cookies)
@@ -97,15 +97,22 @@ class Tab:
 
 
 class CamoufoxBrowser:
-    """Manages a single Camoufox browser instance with multiple tabs"""
+    """Manages a single Camoufox browser instance with multiple tabs.
+
+    Uses a persistent background thread with its own event loop for all browser operations.
+    """
 
     def __init__(self, headless: bool = False, user_data_dir: str | None = None):
         self.headless = headless
         self.user_data_dir = user_data_dir
         self._browser: Any = None
+        self._camoufox: Any = None
         self._playwright: Any = None
         self._tabs: dict[str, Tab] = {}
         self._tab_counter = 0
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
 
     def _get_os_type(self) -> str:
         import platform
@@ -116,21 +123,30 @@ class CamoufoxBrowser:
             return "linux"
         return "windows"
 
-    async def launch_async(self) -> dict[str, Any]:
-        """Launch the Camoufox browser (async)"""
+    def _ensure_started(self) -> None:
+        """Ensure the browser thread is running and browser is launched."""
+        if self._thread is None or not self._thread.is_alive():
+            self._thread = threading.Thread(target=self._run_browser_loop, daemon=True)
+            self._thread.start()
+            # Wait for browser to be launched
+            while self._browser is None:
+                import time; time.sleep(0.01)
+
+    def _run_browser_loop(self) -> None:
+        """Run the browser event loop in a dedicated thread."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_until_complete(self._browser_main())
+
+    async def _browser_main(self) -> None:
+        """Main browser async task - launches browser and processes commands."""
         from camoufox.async_api import AsyncCamoufox
         from playwright.async_api import async_playwright
 
-        if self._browser is not None:
-            return {"status": "already_running", "tab_count": len(self._tabs)}
-
-        self._playwright = await async_playwright().start()
-
         if self.user_data_dir:
-            # Persistent context mode
+            self._playwright = await async_playwright().start()
             from pathlib import Path
             Path(self.user_data_dir).mkdir(parents=True, exist_ok=True)
-            # Use standard Chromium with persistent context
             context = await self._playwright.chromium.launch_persistent_context(
                 self.user_data_dir,
                 headless=self.headless,
@@ -138,25 +154,15 @@ class CamoufoxBrowser:
             self._browser = context.browser
             first_page = context.pages[0] if context.pages else await context.new_page()
         else:
-            # Use Camoufox async API
-            self._browser = await AsyncCamoufox(headless=self.headless, os=self._get_os_type()).__aenter__()
+            self._camoufox = AsyncCamoufox(headless=self.headless, os=self._get_os_type())
+            self._browser = await self._camoufox.__aenter__()
             first_page = await self._browser.new_page()
 
         tab_id = self._create_tab(first_page)
-        return {"status": "launched", "tab_id": tab_id}
 
-    def launch(self) -> dict[str, Any]:
-        """Launch the Camoufox browser (sync wrapper)"""
-        try:
-            loop = asyncio.get_running_loop()
-            # We're in an async context, create a task
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self.launch_async())
-                return future.result()
-        except RuntimeError:
-            # No running event loop, safe to use asyncio.run
-            return asyncio.run(self.launch_async())
+        # Keep the loop running to handle subsequent operations
+        while self._browser.is_connected():
+            await asyncio.sleep(0.1)
 
     def _create_tab(self, page) -> str:
         self._tab_counter += 1
@@ -165,71 +171,56 @@ class CamoufoxBrowser:
         self._tabs[tab_id] = tab
         return tab_id
 
-    async def new_tab_async(self) -> Tab:
-        """Create a new tab (async)"""
-        if self._browser is None:
-            await self.launch_async()
+    def _run_async(self, coro) -> Any:
+        """Run a coroutine in the browser thread's event loop."""
+        if self._loop is None:
+            raise RuntimeError("Browser loop not initialized. Call launch() first.")
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
 
+    def launch(self) -> dict[str, Any]:
+        """Launch the Camoufox browser."""
+        self._ensure_started()
+        return {"status": "launched", "tab_count": len(self._tabs)}
+
+    def new_tab(self) -> Tab:
+        """Create a new tab."""
+        self._ensure_started()
+        return self._run_async(self._new_tab_async())
+
+    async def _new_tab_async(self) -> Tab:
         page = await self._browser.new_page()
         tab_id = self._create_tab(page)
         return self._tabs[tab_id]
 
-    def new_tab(self) -> Tab:
-        """Create a new tab (sync wrapper)"""
-        try:
-            loop = asyncio.get_running_loop()
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(asyncio.run, self.new_tab_async())
-                return future.result()
-        except RuntimeError:
-            return asyncio.run(self.new_tab_async())
-
     def get_tab(self, tab_id: str) -> Tab | None:
         return self._tabs.get(tab_id)
 
-    async def close_tab_async(self, tab_id: str) -> None:
-        tab = self._tabs.pop(tab_id, None)
-        if tab:
-            await tab.close()
-
     def close_tab(self, tab_id: str) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self.close_tab_async(tab_id))
-        except RuntimeError:
-            asyncio.run(self.close_tab_async(tab_id))
+        if tab_id in self._tabs:
+            tab = self._tabs.pop(tab_id)
+            self._run_async(tab.close())
 
-    async def aclose(self) -> None:
-        """Close browser and all tabs (async)"""
-        if self._browser is None and not self._tabs:
-            return
+    async def _close_async(self) -> None:
         for tab in list(self._tabs.values()):
             try:
                 await tab.close()
             except Exception:
                 pass
         self._tabs.clear()
-        if self._browser:
-            try:
-                await self._browser.close()
-            except Exception:
-                pass
-            self._browser = None
-        if self._playwright:
-            try:
-                await self._playwright.__aexit__(None, None, None)
-            except Exception:
-                pass
-            self._playwright = None
+        if self._camoufox:
+            await self._camoufox.__aexit__(None, None, None)
+        elif self._playwright:
+            await self._playwright.__aexit__(None, None, None)
+        elif self._browser:
+            await self._browser.close()
 
     def close(self) -> None:
-        """Close browser and all tabs (sync wrapper)"""
-        try:
-            asyncio.run(self.aclose())
-        except RuntimeError:
-            pass
+        if self._loop:
+            try:
+                self._run_async(self._close_async())
+            except Exception:
+                pass
 
     @property
     def is_running(self) -> bool:
-        return self._browser is not None
+        return self._browser is not None and self._browser.is_connected()

@@ -49,9 +49,9 @@ class Session:
         elif command == "get_url":
             return {"url": self.tab.url}
         elif command == "get_title":
-            return {"title": self.tab.title}
+            return {"title": await self.tab.title()}
         elif command == "cookies":
-            return {"cookies": self.tab.cookies()}
+            return {"cookies": await self.tab.cookies()}
         elif command == "set_cookies":
             await self.tab.set_cookies(kwargs.get("cookies", []))
             return {"status": "ok"}
@@ -62,13 +62,19 @@ class Session:
 
     async def _save_state_async(self) -> None:
         """Save current state to disk (async)"""
-        scroll = await self.tab.get_scroll_position()
+        try:
+            scroll = await self.tab.get_scroll_position()
+            local_storage = await self.tab.get_local_storage()
+        except Exception:
+            # Some pages (e.g., about:blank) may not allow localStorage access
+            scroll = (0, 0)
+            local_storage = {}
         state = SessionState(
             session_id=self.id,
             url=self.tab.url,
             title=self.tab.title,
-            cookies=self.tab.cookies(),
-            local_storage=await self.tab.get_local_storage(),
+            cookies=await self.tab.cookies(),
+            local_storage=local_storage,
             scroll_position=scroll,
             created_at=self.created_at,
             last_active=self.last_active,
@@ -85,13 +91,18 @@ class Session:
 
     async def get_state_async(self) -> SessionState:
         """Get current state without persisting (async)"""
-        scroll = await self.tab.get_scroll_position()
+        try:
+            scroll = await self.tab.get_scroll_position()
+            local_storage = await self.tab.get_local_storage()
+        except Exception:
+            scroll = (0, 0)
+            local_storage = {}
         return SessionState(
             session_id=self.id,
             url=self.tab.url,
             title=self.tab.title,
-            cookies=self.tab.cookies(),
-            local_storage=await self.tab.get_local_storage(),
+            cookies=await self.tab.cookies(),
+            local_storage=local_storage,
             scroll_position=scroll,
             created_at=self.created_at,
             last_active=self.last_active,

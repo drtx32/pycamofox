@@ -29,7 +29,7 @@ async def test_execute_serialization(tmp_path):
     mock_tab.url = "https://github.com"
     mock_tab.title = "GitHub"
     mock_tab.goto = AsyncMock(return_value={"url": "https://github.com"})
-    mock_tab.cookies = MagicMock(return_value=[])
+    mock_tab.cookies = AsyncMock(return_value=[])
     mock_tab.get_local_storage = AsyncMock(return_value={})
     mock_tab.get_scroll_position = AsyncMock(return_value=(0, 0))
     mock_browser.new_tab.return_value = mock_tab
@@ -58,7 +58,7 @@ async def test_different_sessions_parallel(tmp_path):
     mock_tab1.url = "https://a.com"
     mock_tab1.title = "Site A"
     mock_tab1.goto = AsyncMock(return_value={"url": "https://a.com"})
-    mock_tab1.cookies = MagicMock(return_value=[])
+    mock_tab1.cookies = AsyncMock(return_value=[])
     mock_tab1.get_local_storage = AsyncMock(return_value={})
     mock_tab1.get_scroll_position = AsyncMock(return_value=(0, 0))
     mock_tab2 = MagicMock()
@@ -66,7 +66,7 @@ async def test_different_sessions_parallel(tmp_path):
     mock_tab2.url = "https://b.com"
     mock_tab2.title = "Site B"
     mock_tab2.goto = AsyncMock(return_value={"url": "https://b.com"})
-    mock_tab2.cookies = MagicMock(return_value=[])
+    mock_tab2.cookies = AsyncMock(return_value=[])
     mock_tab2.get_local_storage = AsyncMock(return_value={})
     mock_tab2.get_scroll_position = AsyncMock(return_value=(0, 0))
     mock_browser.new_tab.side_effect = [mock_tab1, mock_tab2]
@@ -92,7 +92,7 @@ async def test_close_session(tmp_path):
     mock_tab.id = "tab-1"
     mock_tab.url = "https://example.com"
     mock_tab.title = "Example"
-    mock_tab.cookies = MagicMock(return_value=[])
+    mock_tab.cookies = AsyncMock(return_value=[])
     mock_tab.get_local_storage = AsyncMock(return_value={})
     mock_tab.get_scroll_position = AsyncMock(return_value=(0, 0))
     mock_tab.close = AsyncMock()
@@ -116,7 +116,7 @@ async def test_execute_unknown_command(tmp_path):
     mock_tab = MagicMock()
     mock_tab.id = "tab-1"
     mock_tab.goto = AsyncMock(return_value={"url": ""})
-    mock_tab.cookies = MagicMock(return_value=[])
+    mock_tab.cookies = AsyncMock(return_value=[])
     mock_tab.get_local_storage = AsyncMock(return_value={})
     mock_tab.get_scroll_position = AsyncMock(return_value=(0, 0))
     mock_browser.new_tab.return_value = mock_tab
