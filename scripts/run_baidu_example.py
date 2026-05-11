@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-"""运行百度搜索示例 — 演示 pycamofox skill 系统。
+"""运行 GitHub 搜索示例 — 演示 pycamofox skill 系统。
 
 这个脚本展示：
 1. 如何启动 daemon
 2. 如何创建 session
-3. 如何使用 BaiduSearchSkill 进行语义化搜索
+3. 如何使用 GitHubSearchSkill 进行语义化仓库搜索
 4. 如何获取结构化结果
 """
 import sys
@@ -16,7 +16,7 @@ import urllib.error
 sys.path.insert(0, "src")
 
 from pycamofox.skills import PycamofoxRuntime, SkillRegistry
-from pycamofox.skills.baidu import BaiduSearchSkill, BaiduNewsSkill
+from pycamofox.skills.baidu import GitHubSearchSkill, BaiduSearchSkill
 from pycamofox.skills.registry import skill
 
 
@@ -89,7 +89,7 @@ def start_daemon(port=9377, headless=True):
 
 def main():
     print("=" * 60)
-    print("pycamofox Baidu Skill Example")
+    print("pycamofox GitHub Search Skill Example")
     print("=" * 60)
 
     # 1. 启动 daemon
@@ -110,33 +110,30 @@ def main():
     # 3. 创建 runtime
     runtime = PycamofoxRuntime(session_id=session_id)
 
-    # 4. 注册 BaiduSkill
-    baidu_skill = BaiduSearchSkill(runtime)
-    print(f"[OK] BaiduSearchSkill registered: {baidu_skill.name}")
+    # 4. 注册 GitHub Skill
+    github = GitHubSearchSkill(runtime)
+    print(f"[OK] GitHubSearchSkill registered: {github.name}")
 
-    # 5. 执行搜索
-    print("\n[Step 3] Executing Baidu search...")
-    print('    Query: "stealth browser python"')
-    result = baidu_skill.search("stealth browser python")
+    # 5. 搜索仓库
+    print("\n[Step 3] Searching GitHub repos...")
+    print('    Query: "stealth browser", Language: python')
+    result = github.search_repo("stealth browser", language="python")
     print(f"[OK] Search completed: {result['title']}")
     print(f"    URL: {result['url']}")
     print(f"    Status: {result['status']}")
 
-    if result.get('status') == 'captcha':
-        print("[WARNING] Baidu CAPTCHA detected - this is expected for automated requests")
-        print("[INFO] The skill system works correctly - CAPTCHA is a Baidu anti-bot measure")
-
-    # 6. 获取结果 (only if not CAPTCHA)
+    # 6. 获取结构化结果
     if result.get('status') == 'ok':
-        print("\n[Step 4] Extracting search results...")
-        results = baidu_skill.get_results(max_results=5)
-        print(f"[OK] Found {results['count']} results")
-        for i, r in enumerate(results["results"][:5], 1):
-            print(f"  {i}. {r['title']}")
+        print("\n[Step 4] Extracting repo list...")
+        repos = github.get_repos(max_count=5)
+        print(f"[OK] Found {repos['count']} repos")
+        for i, r in enumerate(repos["repos"][:5], 1):
+            print(f"\n  {i}. {r['title']}")
+            print(f"     Stars: {r.get('stars', 'N/A')} | Lang: {r.get('language', 'N/A')}")
             print(f"     {r['url']}")
-            if r.get('snippet'):
-                snippet = r['snippet'][:80] + ('...' if len(r['snippet']) > 80 else '')
-                print(f"     {snippet}")
+            if r.get('description'):
+                desc = r['description'][:100] + ('...' if len(r['description']) > 100 else '')
+                print(f"     {desc}")
 
     # 7. 关闭 session
     print("\n[Step 5] Closing session...")
