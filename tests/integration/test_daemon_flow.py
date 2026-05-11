@@ -32,12 +32,12 @@ def storage(tmp_path):
     return CamofoxStorage(base_dir=tmp_path)
 
 
-@pytest_asyncio.fixture
-async def browser():
+@pytest.fixture
+def browser():
     b = CamoufoxBrowser(headless=True)
-    await b.launch_async()
+    b.launch()
     yield b
-    await b.aclose()
+    b.close()
 
 
 @pytest.mark.asyncio

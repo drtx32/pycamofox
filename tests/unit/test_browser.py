@@ -3,26 +3,28 @@ import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 from pycamofox.daemon.browser import CamoufoxBrowser, Tab
 
-def test_tab_properties():
+@pytest.mark.asyncio
+async def test_tab_properties():
     """Tab wraps page with id"""
     mock_page = MagicMock()
     mock_page.url = "https://github.com"
-    mock_page.title = "GitHub"
+    mock_page.title = AsyncMock(return_value="GitHub")
     tab = Tab(id="tab-1", page=mock_page)
     assert tab.id == "tab-1"
     assert tab.url == "https://github.com"
-    assert tab.title == "GitHub"
+    assert await tab.title() == "GitHub"
 
 @pytest.mark.asyncio
 async def test_tab_navigate():
     mock_page = AsyncMock()
     mock_page.url = "https://github.com"
-    mock_page.title = "GitHub"
+    mock_page.title = AsyncMock(return_value="GitHub")
     mock_page.goto = AsyncMock()
     tab = Tab(id="tab-1", page=mock_page)
     result = await tab.goto("https://github.com")
     mock_page.goto.assert_called_once_with("https://github.com", timeout=30000)
     assert result["url"] == "https://github.com"
+    assert result["title"] == "GitHub"
 
 @pytest.mark.asyncio
 async def test_tab_click():

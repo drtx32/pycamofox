@@ -27,8 +27,8 @@ async def test_execute_serialization(tmp_path):
     mock_tab = MagicMock()
     mock_tab.id = "tab-1"
     mock_tab.url = "https://github.com"
-    mock_tab.title = "GitHub"
-    mock_tab.goto = AsyncMock(return_value={"url": "https://github.com"})
+    mock_tab.title = AsyncMock(return_value="GitHub")
+    mock_tab.goto = AsyncMock(return_value={"url": "https://github.com", "title": "GitHub"})
     mock_tab.cookies = AsyncMock(return_value=[])
     mock_tab.get_local_storage = AsyncMock(return_value={})
     mock_tab.get_scroll_position = AsyncMock(return_value=(0, 0))
@@ -56,16 +56,16 @@ async def test_different_sessions_parallel(tmp_path):
     mock_tab1 = MagicMock()
     mock_tab1.id = "tab-1"
     mock_tab1.url = "https://a.com"
-    mock_tab1.title = "Site A"
-    mock_tab1.goto = AsyncMock(return_value={"url": "https://a.com"})
+    mock_tab1.title = AsyncMock(return_value="Site A")
+    mock_tab1.goto = AsyncMock(return_value={"url": "https://a.com", "title": "Site A"})
     mock_tab1.cookies = AsyncMock(return_value=[])
     mock_tab1.get_local_storage = AsyncMock(return_value={})
     mock_tab1.get_scroll_position = AsyncMock(return_value=(0, 0))
     mock_tab2 = MagicMock()
     mock_tab2.id = "tab-2"
     mock_tab2.url = "https://b.com"
-    mock_tab2.title = "Site B"
-    mock_tab2.goto = AsyncMock(return_value={"url": "https://b.com"})
+    mock_tab2.title = AsyncMock(return_value="Site B")
+    mock_tab2.goto = AsyncMock(return_value={"url": "https://b.com", "title": "Site B"})
     mock_tab2.cookies = AsyncMock(return_value=[])
     mock_tab2.get_local_storage = AsyncMock(return_value={})
     mock_tab2.get_scroll_position = AsyncMock(return_value=(0, 0))
