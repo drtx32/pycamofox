@@ -197,16 +197,16 @@ class GitHubSearchSkill(Skill):
         r.wait_network_idle(timeout=8000)
         time.sleep(2)
 
-        url_result = r.get_url()
-        title_result = r.get_title()
+        url_result = r.get_url() or {}
+        title_result = r.get_title() or {}
         # API response is {"status": "ok", "result": {"url": "..."}}
-        result_data = url_result.get("result", {}) if isinstance(url_result, dict) else {}
-        title_data = title_result.get("result", {}) if isinstance(title_result, dict) else {}
+        result_data = (url_result.get("result") or {}) if isinstance(url_result, dict) else {}
+        title_data = (title_result.get("result") or {}) if isinstance(title_result, dict) else {}
 
         return {
             "status": "ok",
-            "url": result_data.get("url", ""),
-            "title": title_data.get("title", ""),
+            "url": (result_data.get("url") or "") if isinstance(result_data, dict) else "",
+            "title": (title_data.get("title") or "") if isinstance(title_data, dict) else "",
         }
 
     def get_repos(self, max_count: int = 10) -> dict[str, Any]:

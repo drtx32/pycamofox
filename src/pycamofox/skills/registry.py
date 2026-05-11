@@ -75,7 +75,12 @@ class PycamofoxRuntime:
     def get_title(self) -> dict:
         return self._api("get_title")
 
-    def eval(self, expression: str) -> dict:
+    def eval(self, expression: str, *args) -> dict:
+        """Execute JS expression, optionally with arguments passed to the expression."""
+        if args:
+            import json
+            args_json = json.dumps(args)
+            expression = f"(function(){{ var args = {args_json}; return (function(){{ {expression} }}).apply(null, args); }})()"
         return self._api("eval", expression=expression)
 
     def scroll(self, direction: str = "down", amount: int = 1) -> dict:

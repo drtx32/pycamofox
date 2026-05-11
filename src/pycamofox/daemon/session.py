@@ -72,7 +72,7 @@ class Session:
         state = SessionState(
             session_id=self.id,
             url=self.tab.url,
-            title=self.tab.title,
+            title=await self.tab.title(),
             cookies=await self.tab.cookies(),
             local_storage=local_storage,
             scroll_position=scroll,
@@ -100,7 +100,7 @@ class Session:
         return SessionState(
             session_id=self.id,
             url=self.tab.url,
-            title=self.tab.title,
+            title=await self.tab.title(),
             cookies=await self.tab.cookies(),
             local_storage=local_storage,
             scroll_position=scroll,

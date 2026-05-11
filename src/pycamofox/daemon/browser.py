@@ -19,13 +19,12 @@ class Tab:
     def url(self) -> str:
         return self._page.url
 
-    @property
-    def title(self) -> str:
-        return self._page.title
+    async def title(self) -> str:
+        return await self._page.title()
 
     async def goto(self, url: str, timeout: int = 30000) -> dict[str, Any]:
         await self._page.goto(url, timeout=timeout)
-        return {"url": self.url, "title": self.title}
+        return {"url": self.url, "title": await self.title()}
 
     async def click(self, selector: str) -> dict[str, Any]:
         await self._page.click(selector)
@@ -100,14 +99,26 @@ class CamoufoxBrowser:
     """Manages a single Camoufox browser instance with multiple tabs.
 
     Uses a persistent background thread with its own event loop for all browser operations.
+    Supports stealth mode with anti-detection hooks from camoufox-reverse.
     """
 
-    def __init__(self, headless: bool = False, user_data_dir: str | None = None):
+    def __init__(self, headless: bool = False, user_data_dir: str | None = None, stealth: str = "default"):
+        """Initialize browser.
+
+        Args:
+            headless: Run in headless mode.
+            user_data_dir: Optional persistent user data directory.
+            stealth: Stealth mode - "none", "default", "compatible", "maximum".
+        """
         self.headless = headless
         self.user_data_dir = user_data_dir
+        self.stealth = stealth
+        self._host_os: str | None = None
+        self._target_os: str | None = None
         self._browser: Any = None
         self._camoufox: Any = None
         self._playwright: Any = None
+        self._context: Any = None
         self._tabs: dict[str, Tab] = {}
         self._tab_counter = 0
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -138,10 +149,29 @@ class CamoufoxBrowser:
         asyncio.set_event_loop(self._loop)
         self._loop.run_until_complete(self._browser_main())
 
+    async def _inject_stealth_hooks(self, context) -> None:
+        """Inject stealth JS hooks into the browser context."""
+        if self.stealth == "none":
+            return
+
+        # Font fallback when OS fingerprint differs from host
+        if self._target_os and self._host_os and self._target_os != self._host_os:
+            from pycamofox.stealth import get_font_fallback_script
+            await context.add_init_script(get_font_fallback_script())
+
+        # Core stealth hooks
+        from pycamofox.stealth import get_stealth_script
+        stealth_js = get_stealth_script(self.stealth)
+        if stealth_js:
+            await context.add_init_script(stealth_js)
+
     async def _browser_main(self) -> None:
         """Main browser async task - launches browser and processes commands."""
         from camoufox.async_api import AsyncCamoufox
         from playwright.async_api import async_playwright
+
+        self._host_os = self._get_os_type()
+        self._target_os = self._host_os
 
         if self.user_data_dir:
             self._playwright = await async_playwright().start()
@@ -152,11 +182,20 @@ class CamoufoxBrowser:
                 headless=self.headless,
             )
             self._browser = context.browser
+            self._context = context
             first_page = context.pages[0] if context.pages else await context.new_page()
         else:
-            self._camoufox = AsyncCamoufox(headless=self.headless, os=self._get_os_type())
+            self._camoufox = AsyncCamoufox(headless=self.headless, os=self._target_os)
             self._browser = await self._camoufox.__aenter__()
-            first_page = await self._browser.new_page()
+            # Get or create default context
+            if self._browser.contexts:
+                self._context = self._browser.contexts[0]
+            else:
+                self._context = await self._browser.new_context()
+            first_page = await self._context.new_page()
+
+        # Inject stealth hooks
+        await self._inject_stealth_hooks(self._context)
 
         tab_id = self._create_tab(first_page)
 

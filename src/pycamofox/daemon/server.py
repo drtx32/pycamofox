@@ -138,12 +138,17 @@ def run_server(
     port: int = 9377,
     headless: bool = False,
     storage_dir: str | None = None,
+    stealth: str = "default",
 ):
     """Run the daemon server"""
     import uvicorn
 
     storage = CamofoxStorage(Path(storage_dir) if storage_dir else CamofoxStorage.default().base_dir)
-    browser = CamoufoxBrowser(headless=headless, user_data_dir=str(storage.base_dir / "profiles" / "default"))
+    browser = CamoufoxBrowser(
+        headless=headless,
+        user_data_dir=str(storage.base_dir / "profiles" / "default"),
+        stealth=stealth,
+    )
 
     app = create_app(browser=browser, storage=storage)
 
